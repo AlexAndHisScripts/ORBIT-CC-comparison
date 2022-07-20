@@ -1,14 +1,17 @@
 from azure.cognitiveservices.vision.customvision.training import CustomVisionTrainingClient
 from azure.cognitiveservices.vision.customvision.prediction import CustomVisionPredictionClient
-from azure.cognitiveservices.vision.customvision.training.models import ImageFileCreateBatch, ImageFileCreateEntry, Region
+from azure.cognitiveservices.vision.customvision.training.models import ImageFileCreateBatch, ImageFileCreateEntry, \
+    Region
 from msrest.authentication import ApiKeyCredentials
 import os, time, uuid, json, math
 from dataclasses import dataclass
+
 
 @dataclass
 class Batch():
     images: list
     batch_count: int
+
 
 image_count_per_batch = 51
 batch_count = 2
@@ -91,7 +94,7 @@ for user in users:
         step = math.floor(image_count / image_count_per_batch)
         i = 0
 
-        batches=[]
+        batches = []
         batches.append(Batch(images=[], batch_count=0))
 
         for subdataset in os.listdir(clean):
@@ -104,10 +107,10 @@ for user in users:
                         if batches[-1].batch_count >= 64:
                             batches.append(Batch(images=[], batch_count=0))
 
-                        batches[-1].images.append(ImageFileCreateEntry(name=image, contents=f.read(), tag_ids=[dataset_tag.id]))
+                        batches[-1].images.append(
+                            ImageFileCreateEntry(name=image, contents=f.read(), tag_ids=[dataset_tag.id]))
                         batches[-1].batch_count += 1
                         print("Added image: " + image)
-
 
         print("Batch count: " + str(len(batches)))
         for batch in batches:
@@ -131,21 +134,26 @@ for user in users:
 
 print("Training project")
 iteration = trainer.train_project(project.id)
-while (iteration.status != "Completed"):
+
+startTime = time.time()
+
+while True:
     iteration = trainer.get_iteration(project.id, iteration.id)
-    print ("Training status: " + iteration.status)
-    print ("Waiting 15 seconds...")
+    print("Training status: " + iteration.status)
+    if iteration.status == "Completed":
+        break
+
+    print("Waiting 15 seconds... it has been " + str(math.round(time.time() - startTime)) + " seconds")
     time.sleep(15)
 
 print("Training complete. Iteration ID: " + str(iteration.id))
 print("Iteration publish name: " + str(publish_iteration_name))
 print("Iteration public name [2]:" + str(iteration.publish_name))
 print("Iteration resource id: " + str(prediction_resource_id))
-print("Iteration resource id [2]: " + str(predictor.resource_id))
 
 print("Publishing!")
-trainer.publish_iteration(project.id, iteration.id, publish_iteration_name, predictor.resource_id)
-print ("Done!")
+trainer.publish_iteration(project.id, iteration.id, publish_iteration_name, prediction_resource_id)
+print("Done!")
 
 for path in cluttered_list:
     with open(path, mode="rb") as f:
