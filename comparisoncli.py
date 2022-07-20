@@ -374,6 +374,9 @@ def process_and_export_stats(project_id, publish_iteration_name, cluttered_file,
                     tag = path.split("/")[3]
 
                     prob = None
+
+                    # log if tag is highest one
+                    # average accuracy for users
                     for prediction in results.predictions:
                         if not prediction.tag_name in taglist:
                             taglist.append(prediction.tag_name)
