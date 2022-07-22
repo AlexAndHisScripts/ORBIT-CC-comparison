@@ -130,8 +130,6 @@ def delete_project(name: str):
 
     print("Project not found")
 
-
-# TODO add option to downscale images to match our algo
 @click.command()
 @click.option("--project-id", prompt="Project ID", help="ID of the project")
 @click.option("--dataset-count", prompt="Dataset count", help="Number of datasets to process.")
@@ -345,6 +343,13 @@ def publish_iteration(project_id, iteration_id, publish_iteration_name):
 @click.option("--amount", prompt="Amount of images to test", help="Amount of images to test on")
 @click.option("--img-size", prompt="Size of image (scale to)", help="The size the images are scaled to")
 def process_and_export_stats(project_id, publish_iteration_name, cluttered_file, outfile, amount, img_size):
+    def make_json_of_predictions(predictions):
+        out = []
+        for i in predictions:
+            out.append({"prediction": i.tag_name, "probability": i.probability})
+
+        return out
+
     predictor = get_predictor(get_credentials())
     output = []
     amount = int(amount)
@@ -377,7 +382,14 @@ def process_and_export_stats(project_id, publish_iteration_name, cluttered_file,
 
                     # log if tag is highest one
                     # average accuracy for users
+                    highestProb = None
+                    highestProbValue = 0
+
                     for prediction in results.predictions:
+                        if prediction.probability > highestProbValue:
+                            highestProbValue = prediction.probability
+                            highestProb = prediction.tag_name
+
                         if not prediction.tag_name in taglist:
                             taglist.append(prediction.tag_name)
 
@@ -389,7 +401,7 @@ def process_and_export_stats(project_id, publish_iteration_name, cluttered_file,
                         print("Invalid prob")
                         continue
 
-                    output.append({"tag": tag, "returnedprob": prob})
+                    output.append({"tag": tag, "returnedprob": prob, "highestprob": highestProb, "highestprobvalue": highestProbValue, "raw_predict": make_json_of_predictions(results.predictions)})
 
         print("Writing")
         with open(outfile, "w") as f:
@@ -404,11 +416,28 @@ def process_and_export_stats(project_id, publish_iteration_name, cluttered_file,
 def json_to_histogram(infile, outprefix):
     import matplotlib.pyplot as plt
 
+    def calc_average(dataset):
+        total = 0
+        for i in dataset:
+            total += i
+
+        return total / len(dataset)
+
+    def calc_median(dataset):
+        dataset.sort()
+        if len(dataset) % 2 == 0:
+            return (dataset[len(dataset) // 2] + dataset[len(dataset) // 2 - 1]) / 2
+        else:
+            return dataset[len(dataset) // 2]
+
     with open(infile, "r") as f:
         data = json.loads(f.read())
         taglist = data["meta"]["taglist"]
 
         histograms = {}
+        amountHighestProb = {}
+
+        successRates = []
 
         for tag in taglist:
             for entry in data["data"]:
@@ -418,12 +447,41 @@ def json_to_histogram(infile, outprefix):
 
                     histograms[tag].append(entry["returnedprob"])
 
+                    if entry["highestprob"] == tag:
+                        if tag not in amountHighestProb:
+                            amountHighestProb[tag] = {}
+                            amountHighestProb[tag]["positives"] = 1
+                            amountHighestProb[tag]["total"] = 1
+
+                        amountHighestProb[tag]["positives"] += 1
+                        amountHighestProb[tag]["total"] += 1
+
+                    else:
+                        if tag not in amountHighestProb:
+                            amountHighestProb[tag] = {}
+                            amountHighestProb[tag]["positives"] = 0
+                            amountHighestProb[tag]["total"] = 1
+
+                        amountHighestProb[tag]["total"] += 1
+
         for name, values in histograms.items():
+            print(name)
+            highestProbPercent = amountHighestProb[name]["positives"] / amountHighestProb[name]["total"]
+            print(f"Highest prob: {highestProbPercent}")
+
+            successRates.append(highestProbPercent)
+
             plt.close()
-            plt.hist(values, bins=10, label=name)
-            plt.title(name)
+            plt.xlim([0, 1])
+            plt.hist(values, bins=[x/20 for x in range(0, 21)], label=name)
+            plt.title(name + " (Success rate: " + str(round(highestProbPercent * 100, 2)) + "%)")
             #plt.show()
             plt.savefig(outprefix + "_" + name.replace(" ", "") + ".png")
+
+        print("Mean success rate: " + str(calc_average(successRates) * 100) + "%")
+        print("Median success rate: " + str(calc_median(successRates) * 100) + "%")
+
+# TODO calc 12 categories, 50 images per category. creds have expired.
 
 if __name__ == "__main__":
     cli.add_command(list_projects)
