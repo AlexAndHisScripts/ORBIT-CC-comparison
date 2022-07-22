@@ -1,19 +1,21 @@
-"""
-testing.py does the job, but it does the whole pipeline start -> finish, which is wasteful. comparisoncli does each step individually, at user commands,
-and outputs the info needed to put into the next step.
-"""
-import io
-
-import PIL.Image
+# Azure stuff
 from azure.cognitiveservices.vision.customvision.training import CustomVisionTrainingClient
 from azure.cognitiveservices.vision.customvision.prediction import CustomVisionPredictionClient
-from azure.cognitiveservices.vision.customvision.training.models import ImageFileCreateBatch, ImageFileCreateEntry, \
-    Region
+from azure.cognitiveservices.vision.customvision.training.models import ImageFileCreateBatch, ImageFileCreateEntry
 from msrest.authentication import ApiKeyCredentials
-import os, time, uuid, json, math
-from dataclasses import dataclass
-import click
+
+# Image conversion
+from io import BytesIO
 from PIL import Image
+
+# Misc
+import os, time, json, math
+
+# Data structures
+from dataclasses import dataclass
+
+# CLI library
+import click
 
 
 @dataclass
@@ -32,6 +34,13 @@ class Batch:
 
 
 def get_credentials() -> Credentials:
+    if not os.path.exists("credentials.json"):
+        with open("credentials.json", "w") as f:
+            json.dump({"endpoint_training": "", "endpoint_prediction": "", "training_key": "", "prediction_key": "", "prediction_resource_id": ""}, f, indent=4)
+
+        print("Created credentials.json file. Please fill it in.")
+        return
+
     with open("credentials.json") as f:
         data = json.load(f)
         endpoint_training = data["endpoint_training"]
@@ -57,10 +66,9 @@ def get_clients(credentials: Credentials) -> (CustomVisionTrainingClient, Custom
     return get_trainer(credentials), get_predictor(credentials)
 
 
-# TODO maybe make this a preprocessing step writing to disk? Or make this work through lots of byte conversions...
 def scale_image(img_data, size):
     def image_to_byte_array(image: Image) -> bytes:
-        imgByteArr = io.BytesIO()
+        imgByteArr = BytesIO()
         image.save(imgByteArr, "JPEG")
         imgByteArr.seek(0)
         return imgByteArr.read()
@@ -81,6 +89,10 @@ def scale_image(img_data, size):
 def cli():
     pass
 
+
+@click.command()
+def gen_creds():
+    get_credentials()
 
 @click.command()
 def list_projects():
@@ -129,6 +141,7 @@ def delete_project(name: str):
             return
 
     print("Project not found")
+
 
 @click.command()
 @click.option("--project-id", prompt="Project ID", help="ID of the project")
@@ -332,7 +345,6 @@ def publish_iteration(project_id, iteration_id, publish_iteration_name):
     print("Published!")
 
 
-# TODO getting stats
 @click.command()
 @click.option("--project-id", prompt="Project ID", help="ID of the project")
 @click.option("--publish-iteration-name", prompt="Publish Iteration Name",
@@ -401,7 +413,9 @@ def process_and_export_stats(project_id, publish_iteration_name, cluttered_file,
                         print("Invalid prob")
                         continue
 
-                    output.append({"tag": tag, "returnedprob": prob, "highestprob": highestProb, "highestprobvalue": highestProbValue, "raw_predict": make_json_of_predictions(results.predictions)})
+                    output.append({"tag": tag, "returnedprob": prob, "highestprob": highestProb,
+                                   "highestprobvalue": highestProbValue,
+                                   "raw_predict": make_json_of_predictions(results.predictions)})
 
         print("Writing")
         with open(outfile, "w") as f:
@@ -473,15 +487,14 @@ def json_to_histogram(infile, outprefix):
 
             plt.close()
             plt.xlim([0, 1])
-            plt.hist(values, bins=[x/20 for x in range(0, 21)], label=name)
+            plt.hist(values, bins=[x / 20 for x in range(0, 21)], label=name)
             plt.title(name + " (Success rate: " + str(round(highestProbPercent * 100, 2)) + "%)")
-            #plt.show()
+            # plt.show()
             plt.savefig(outprefix + "_" + name.replace(" ", "") + ".png")
 
         print("Mean success rate: " + str(calc_average(successRates) * 100) + "%")
         print("Median success rate: " + str(calc_median(successRates) * 100) + "%")
 
-# TODO calc 12 categories, 50 images per category. creds have expired.
 
 if __name__ == "__main__":
     cli.add_command(list_projects)
@@ -495,5 +508,6 @@ if __name__ == "__main__":
     cli.add_command(publish_iteration)
     cli.add_command(process_and_export_stats)
     cli.add_command(json_to_histogram)
+    cli.add_command(gen_creds)
 
     cli()
